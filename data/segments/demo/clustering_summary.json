@@ -1,0 +1,51 @@
+{
+  "algorithm": "kmeans",
+  "n_segments": 8,
+  "silhouette": 0.6558017134666443,
+  "davies_bouldin": 0.9954137240342855,
+  "noise_fraction": 0.0,
+  "run_timestamp": "2026-04-26T03:20:06.687756",
+  "elapsed_seconds": 15.997238459007349,
+  "profiles": [
+    {
+      "segment_id": 0,
+      "size": 302,
+      "silhouette_score": 0.6558017134666443
+    },
+    {
+      "segment_id": 1,
+      "size": 170,
+      "silhouette_score": 0.6558017134666443
+    },
+    {
+      "segment_id": 2,
+      "size": 292,
+      "silhouette_score": 0.6558017134666443
+    },
+    {
+      "segment_id": 3,
+      "size": 282,
+      "silhouette_score": 0.6558017134666443
+    },
+    {
+      "segment_id": 4,
+      "size": 201,
+      "silhouette_score": 0.6558017134666443
+    },
+    {
+      "segment_id": 5,
+      "size": 245,
+      "silhouette_score": 0.6558017134666443
+    },
+    {
+      "segment_id": 6,
+      "size": 269,
+      "silhouette_score": 0.6558017134666443
+    },
+    {
+      "segment_id": 7,
+      "size": 239,
+      "silhouette_score": 0.6558017134666443
+    }
+  ]
+}

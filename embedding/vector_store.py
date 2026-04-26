@@ -18,8 +18,6 @@ from typing import Any
 
 import faiss
 import numpy as np
-import psycopg2
-import psycopg2.extras
 from loguru import logger
 
 
@@ -182,6 +180,8 @@ class PGVectorStoreWriter(VectorStoreWriter):
         table_name: str = "embeddings",
         buffer_size: int = 1000,
     ) -> None:
+        import psycopg2  # lazy — only needed when using pgvector backend
+        self._psycopg2 = psycopg2
         self._dsn = dsn
         self._embedding_dim = embedding_dim
         self._table_name = table_name
@@ -216,6 +216,8 @@ class PGVectorStoreWriter(VectorStoreWriter):
     def flush(self) -> None:
         if not self._buffer:
             return
+
+        import psycopg2.extras  # lazy
 
         insert_sql = f"""
             INSERT INTO {self._table_name} (record_id, embedding, model_name, model_version)
