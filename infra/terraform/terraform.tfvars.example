@@ -1,0 +1,19 @@
+# =============================================================================
+# Terraform Example Variables — Copy to terraform.tfvars (never commit tfvars)
+# =============================================================================
+aws_region   = "us-east-1"
+project_name = "bmr-ml-pipeline"
+environment  = "staging"
+
+# Networking
+vpc_cidr = "10.0.0.0/16"
+
+# EC2 Airflow
+airflow_instance_type = "t3.large"
+ec2_key_name          = "your-key-pair-name"
+
+# Redshift
+redshift_master_username  = "admin"
+redshift_master_password  = "YourSecurePassword1!"
+redshift_node_type        = "dc2.large"
+redshift_number_of_nodes  = 2

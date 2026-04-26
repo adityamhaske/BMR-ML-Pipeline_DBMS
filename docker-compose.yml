@@ -1,0 +1,334 @@
+version: "3.8"
+
+# =============================================================================
+# BMR-ML-Pipeline — Local Development Infrastructure
+# =============================================================================
+# Runs the entire platform locally for development:
+#   - Apache Airflow 2.x (Celery executor, webserver, scheduler, workers)
+#   - PostgreSQL (Airflow metadata DB + pgvector for embeddings)
+#   - Redis (Celery broker)
+#   - MLflow Tracking Server
+#   - Model Serving API (FastAPI)
+#   - Prometheus + Grafana (monitoring)
+#   - LocalStack (AWS services simulation: S3, SNS, Secrets Manager)
+# =============================================================================
+
+x-airflow-common: &airflow-common
+  image: apache/airflow:2.9.1-python3.11
+  build:
+    context: .
+    dockerfile: infra/docker/airflow/Dockerfile
+  environment:
+    &airflow-common-env
+    AIRFLOW__CORE__EXECUTOR: CeleryExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres-airflow/airflow
+    AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://airflow:airflow@postgres-airflow/airflow
+    AIRFLOW__CELERY__BROKER_URL: redis://:@redis:6379/0
+    AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW__CORE__FERNET_KEY:-ZmDfcTF7_60GrrY167zsiPd67pEvs0aGOv2oasOM1Pg=}
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__CORE__DEFAULT_TIMEZONE: America/Chicago
+    AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "true"
+    AIRFLOW__WEBSERVER__RBAC: "true"
+    AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: "true"
+    AIRFLOW__METRICS__STATSD_ON: "true"
+    AIRFLOW__METRICS__STATSD_HOST: prometheus
+    AIRFLOW__METRICS__STATSD_PORT: 9125
+    # AWS (LocalStack for local dev)
+    AWS_DEFAULT_REGION: ${AWS_REGION:-us-east-1}
+    AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-localstack}
+    AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-localstack}
+    LOCALSTACK_ENDPOINT: ${LOCALSTACK_ENDPOINT:-http://localstack:4566}
+    USE_LOCALSTACK: "true"
+    # Project config
+    EMBEDDING_MODEL_NAME: ${EMBEDDING_MODEL_NAME:-sentence-transformers/all-MiniLM-L6-v2}
+    EMBEDDING_BATCH_SIZE: ${EMBEDDING_BATCH_SIZE:-512}
+    EMBEDDING_DEVICE: cpu
+    POSTGRES_VECTOR_HOST: postgres-vectors
+    POSTGRES_VECTOR_PORT: 5432
+    POSTGRES_VECTOR_DB: ${POSTGRES_VECTOR_DB:-bmr_vectors}
+    POSTGRES_VECTOR_USER: ${POSTGRES_VECTOR_USER:-bmr}
+    POSTGRES_VECTOR_PASSWORD: ${POSTGRES_VECTOR_PASSWORD:-bmr_password}
+    MLFLOW_TRACKING_URI: http://mlflow:5000
+    DUCKDB_PATH: /opt/airflow/data/local/warehouse.duckdb
+    SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+  volumes:
+    - ./pipelines/dags:/opt/airflow/dags
+    - ./pipelines/operators:/opt/airflow/operators
+    - ./pipelines/hooks:/opt/airflow/hooks
+    - ./pipelines/utils:/opt/airflow/utils
+    - ./embedding:/opt/airflow/embedding
+    - ./segmentation:/opt/airflow/segmentation
+    - ./etl:/opt/airflow/etl
+    - ./mlops:/opt/airflow/mlops
+    - ./data:/opt/airflow/data
+    - ./logs/airflow:/opt/airflow/logs
+    - airflow-plugins:/opt/airflow/plugins
+  user: "${AIRFLOW_UID:-50000}:0"
+  networks:
+    - bmr-net
+  depends_on:
+    postgres-airflow:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+
+services:
+
+  # ─── PostgreSQL: Airflow Metadata DB ──────────────────────────────────────
+  postgres-airflow:
+    image: postgres:15-alpine
+    container_name: bmr-postgres-airflow
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - postgres-airflow-data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 10s
+      retries: 5
+      start_period: 5s
+    networks:
+      - bmr-net
+    restart: unless-stopped
+
+  # ─── PostgreSQL: Vector Store (pgvector) ──────────────────────────────────
+  postgres-vectors:
+    image: pgvector/pgvector:pg16
+    container_name: bmr-postgres-vectors
+    environment:
+      POSTGRES_USER: ${POSTGRES_VECTOR_USER:-bmr}
+      POSTGRES_PASSWORD: ${POSTGRES_VECTOR_PASSWORD:-bmr_password}
+      POSTGRES_DB: ${POSTGRES_VECTOR_DB:-bmr_vectors}
+    volumes:
+      - postgres-vector-data:/var/lib/postgresql/data
+      - ./infra/sql/init_vectors.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_VECTOR_USER:-bmr} -d ${POSTGRES_VECTOR_DB:-bmr_vectors}"]
+      interval: 10s
+      retries: 5
+    networks:
+      - bmr-net
+    restart: unless-stopped
+
+  # ─── Redis: Celery Broker ─────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: bmr-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 30s
+      retries: 50
+      start_period: 30s
+    networks:
+      - bmr-net
+    restart: unless-stopped
+
+  # ─── Airflow: Init ────────────────────────────────────────────────────────
+  airflow-init:
+    <<: *airflow-common
+    container_name: bmr-airflow-init
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        airflow db migrate
+        airflow users create \
+          --username admin \
+          --firstname Admin \
+          --lastname User \
+          --role Admin \
+          --email admin@bmrml.local \
+          --password admin
+        echo "Airflow initialized!"
+    restart: "no"
+
+  # ─── Airflow: Webserver ───────────────────────────────────────────────────
+  airflow-webserver:
+    <<: *airflow-common
+    container_name: bmr-airflow-webserver
+    command: webserver
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  # ─── Airflow: Scheduler ───────────────────────────────────────────────────
+  airflow-scheduler:
+    <<: *airflow-common
+    container_name: bmr-airflow-scheduler
+    command: scheduler
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8974/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  # ─── Airflow: Worker ──────────────────────────────────────────────────────
+  airflow-worker:
+    <<: *airflow-common
+    container_name: bmr-airflow-worker
+    command: celery worker
+    environment:
+      <<: *airflow-common-env
+      DUMB_INIT_SETSID: "0"
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - 'celery --app airflow.executors.celery_executor.app inspect ping -d "celery@$${HOSTNAME}" -t 10'
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  # ─── Airflow: Flower (Worker Monitor) ────────────────────────────────────
+  airflow-flower:
+    <<: *airflow-common
+    container_name: bmr-airflow-flower
+    command: celery flower
+    ports:
+      - "5555:5555"
+    restart: unless-stopped
+
+  # ─── MLflow Tracking Server ───────────────────────────────────────────────
+  mlflow:
+    image: python:3.11-slim
+    container_name: bmr-mlflow
+    working_dir: /mlflow
+    entrypoint: >
+      bash -c "pip install mlflow[extras] boto3 psycopg2-binary -q &&
+               mlflow server
+                 --backend-store-uri sqlite:///mlruns.db
+                 --default-artifact-root /mlflow/artifacts
+                 --host 0.0.0.0
+                 --port 5000"
+    ports:
+      - "5000:5000"
+    volumes:
+      - mlflow-data:/mlflow
+    networks:
+      - bmr-net
+    restart: unless-stopped
+
+  # ─── Model Serving API ────────────────────────────────────────────────────
+  serving-api:
+    build:
+      context: .
+      dockerfile: infra/docker/serving/Dockerfile
+    container_name: bmr-serving-api
+    environment:
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      POSTGRES_VECTOR_HOST: postgres-vectors
+      POSTGRES_VECTOR_PORT: 5432
+      POSTGRES_VECTOR_DB: ${POSTGRES_VECTOR_DB:-bmr_vectors}
+      POSTGRES_VECTOR_USER: ${POSTGRES_VECTOR_USER:-bmr}
+      POSTGRES_VECTOR_PASSWORD: ${POSTGRES_VECTOR_PASSWORD:-bmr_password}
+      SERVING_HOST: 0.0.0.0
+      SERVING_PORT: 8000
+      SERVING_LOG_LEVEL: info
+      ENVIRONMENT: local
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./serving:/app/serving
+      - ./mlops:/app/mlops
+      - ./data:/app/data
+    depends_on:
+      - mlflow
+      - postgres-vectors
+    networks:
+      - bmr-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ─── LocalStack (AWS simulation) ──────────────────────────────────────────
+  localstack:
+    image: localstack/localstack:3.4
+    container_name: bmr-localstack
+    ports:
+      - "4566:4566"
+    environment:
+      SERVICES: s3,sns,secretsmanager,iam
+      DEBUG: "0"
+      DEFAULT_REGION: us-east-1
+      AWS_DEFAULT_REGION: us-east-1
+    volumes:
+      - localstack-data:/var/lib/localstack
+      - ./infra/localstack/init-aws.sh:/etc/localstack/init/ready.d/init-aws.sh
+    networks:
+      - bmr-net
+    restart: unless-stopped
+
+  # ─── Prometheus ───────────────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.52.0
+    container_name: bmr-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./monitoring/alerts/alert_rules.yaml:/etc/prometheus/alert_rules.yaml
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=15d"
+      - "--web.enable-lifecycle"
+    networks:
+      - bmr-net
+    restart: unless-stopped
+
+  # ─── Grafana ──────────────────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:10.4.2
+    container_name: bmr-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SERVER_DOMAIN: localhost
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/dashboards:/etc/grafana/provisioning/dashboards
+      - ./monitoring/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml
+    depends_on:
+      - prometheus
+    networks:
+      - bmr-net
+    restart: unless-stopped
+
+volumes:
+  postgres-airflow-data:
+  postgres-vector-data:
+  mlflow-data:
+  localstack-data:
+  prometheus-data:
+  grafana-data:
+  airflow-plugins:
+
+networks:
+  bmr-net:
+    driver: bridge
+    name: bmr-ml-network

@@ -1,0 +1,147 @@
+# ─── Python ───────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+*.pyc
+*.pyo
+*.pyd
+.python-version
+
+# ─── Virtual Environments ─────────────────────────────────────────────────────
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# ─── Environment Variables ────────────────────────────────────────────────────
+.env.local
+.env.*.local
+*.env
+!.env.example
+
+# ─── IDEs & Editors ───────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ─── Jupyter Notebooks ────────────────────────────────────────────────────────
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# ─── Testing & Coverage ───────────────────────────────────────────────────────
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+*.log
+nosetests.xml
+test-results/
+
+# ─── Type Checking ────────────────────────────────────────────────────────────
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+
+# ─── Terraform ────────────────────────────────────────────────────────────────
+infra/terraform/.terraform/
+infra/terraform/.terraform.lock.hcl
+infra/terraform/terraform.tfstate
+infra/terraform/terraform.tfstate.backup
+infra/terraform/*.tfvars
+!infra/terraform/*.tfvars.example
+infra/terraform/override.tf
+infra/terraform/override.tf.json
+infra/terraform/*_override.tf
+infra/terraform/*_override.tf.json
+
+# ─── Docker ───────────────────────────────────────────────────────────────────
+.docker/
+
+# ─── Airflow ──────────────────────────────────────────────────────────────────
+airflow/logs/
+airflow/plugins/
+airflow.cfg
+airflow.db
+airflow-webserver.pid
+standalone_admin_password.txt
+
+# ─── dbt ──────────────────────────────────────────────────────────────────────
+dbt/target/
+dbt/dbt_packages/
+dbt/logs/
+
+# ─── MLflow ───────────────────────────────────────────────────────────────────
+mlruns/
+mlartifacts/
+
+# ─── Data Files ───────────────────────────────────────────────────────────────
+data/raw/
+data/processed/
+data/embeddings/
+data/faiss_index/
+*.csv
+*.parquet
+*.json.gz
+*.jsonl
+!data/sample/**
+!data/schemas/**
+
+# ─── Model Artifacts ──────────────────────────────────────────────────────────
+*.pkl
+*.joblib
+*.pt
+*.pth
+*.onnx
+models/
+
+# ─── Logs ─────────────────────────────────────────────────────────────────────
+logs/
+*.log
+
+# ─── Secrets & Keys ───────────────────────────────────────────────────────────
+*.pem
+*.key
+*.p12
+secrets/
+
+# ─── Great Expectations ───────────────────────────────────────────────────────
+etl/validation/great_expectations/uncommitted/
+
+# ─── Monitoring ───────────────────────────────────────────────────────────────
+monitoring/evidently/reports/
+
+# ─── Misc ─────────────────────────────────────────────────────────────────────
+.cache/
+tmp/
+temp/
+scratch/

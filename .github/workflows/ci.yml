@@ -1,0 +1,188 @@
+name: CI — Lint, Type Check, Test, Build
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+env:
+  PYTHON_VERSION: "3.11"
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}/serving
+
+jobs:
+  # ─── Lint & Type Check ──────────────────────────────────────────────────────
+  quality:
+    name: Code Quality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dev dependencies
+        run: pip install ruff mypy
+
+      - name: Ruff lint
+        run: ruff check . --output-format=github
+
+      - name: Ruff format check
+        run: ruff format . --check
+
+      - name: Mypy type check
+        run: mypy embedding/ segmentation/ etl/ serving/ mlops/ --ignore-missing-imports
+        continue-on-error: true  # Non-blocking until type coverage is at 80%+
+
+  # ─── Unit Tests ─────────────────────────────────────────────────────────────
+  test-unit:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    needs: quality
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements/dev.txt
+
+      - name: Run unit tests
+        run: pytest tests/unit/ -v -m "unit" --cov --cov-report=xml
+        env:
+          ENVIRONMENT: test
+          USE_LOCALSTACK: "false"
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage.xml
+          fail_ci_if_error: false
+
+  # ─── Integration Tests ──────────────────────────────────────────────────────
+  test-integration:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: test-unit
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: bmr
+          POSTGRES_PASSWORD: bmr_password
+          POSTGRES_DB: bmr_vectors
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements/dev.txt
+
+      - name: Run integration tests
+        run: pytest tests/integration/ -v -m "integration"
+        env:
+          ENVIRONMENT: test
+          POSTGRES_VECTOR_HOST: localhost
+          POSTGRES_VECTOR_PORT: 5432
+          POSTGRES_VECTOR_DB: bmr_vectors
+          POSTGRES_VECTOR_USER: bmr
+          POSTGRES_VECTOR_PASSWORD: bmr_password
+          USE_LOCALSTACK: "false"
+
+  # ─── Docker Build & Push ────────────────────────────────────────────────────
+  build-push:
+    name: Build & Push Docker Image
+    runs-on: ubuntu-latest
+    needs: [test-unit, test-integration]
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,prefix=sha-
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - name: Build and push serving image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: infra/docker/serving/Dockerfile
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ─── Smoke Test (on PR) ─────────────────────────────────────────────────────
+  smoke-test:
+    name: Smoke Test
+    runs-on: ubuntu-latest
+    needs: build-push
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pull and start serving image
+        run: |
+          docker run -d \
+            --name bmr-serving-test \
+            -p 8000:8000 \
+            -e ENVIRONMENT=test \
+            -e MLFLOW_TRACKING_URI=http://localhost:5000 \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          sleep 10
+
+      - name: Health check
+        run: |
+          curl -f http://localhost:8000/health || exit 1
+          echo "Health check passed!"
+
+      - name: Inference smoke test
+        run: |
+          curl -sf -X POST http://localhost:8000/v1/segment/predict \
+            -H "Content-Type: application/json" \
+            -d '{"record_id": "test-001", "text": "Great product, fast shipping!"}' \
+            | python3 -c "import sys, json; d=json.load(sys.stdin); assert 'segment_id' in d, 'Missing segment_id'"
+          echo "Inference smoke test passed!"
+
+      - name: Cleanup
+        if: always()
+        run: docker rm -f bmr-serving-test || true

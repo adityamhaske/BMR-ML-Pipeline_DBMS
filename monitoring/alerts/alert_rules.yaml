@@ -1,0 +1,36 @@
+groups:
+  - name: bmr_serving_alerts
+    rules:
+      - alert: HighErrorRate
+        expr: rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m]) > 0.01
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Serving API error rate > 1% for 3 minutes — rollback triggered"
+
+      - alert: HighP99Latency
+        expr: histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m])) > 0.5
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Serving API p99 latency > 500ms — investigate"
+
+      - alert: ServingAPIDown
+        expr: up{job="bmr-serving-api"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Serving API is down"
+
+  - name: bmr_etl_alerts
+    rules:
+      - alert: ETLPipelineStalled
+        expr: time() - airflow_dag_run_last_run_timestamp{dag_id="nyc_taxi_monthly_etl"} > 86400 * 3
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "NYC Taxi ETL has not run in 3+ days"

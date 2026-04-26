@@ -1,0 +1,54 @@
+# Includes all base requirements
+-r base.txt
+
+# ─── Apache Airflow ───────────────────────────────────────────────────────────
+apache-airflow==2.9.1
+apache-airflow-providers-amazon>=8.21.0
+apache-airflow-providers-postgres>=5.11.0
+apache-airflow-providers-redis>=3.7.0
+apache-airflow-providers-slack>=8.6.0
+apache-airflow-providers-http>=4.10.0
+apache-airflow-providers-celery>=3.7.0
+
+# ─── dbt ──────────────────────────────────────────────────────────────────────
+dbt-core>=1.8.0
+dbt-redshift>=1.8.0
+dbt-duckdb>=1.8.0
+
+# ─── Data Quality ─────────────────────────────────────────────────────────────
+great-expectations>=0.18.14
+
+# ─── MLflow ───────────────────────────────────────────────────────────────────
+mlflow>=2.12.2
+mlflow-skinny>=2.12.2
+
+# ─── Monitoring & Drift ───────────────────────────────────────────────────────
+evidently>=0.4.24
+prometheus-client>=0.20.0
+
+# ─── Testing ──────────────────────────────────────────────────────────────────
+pytest>=8.2.0
+pytest-cov>=5.0.0
+pytest-asyncio>=0.23.6
+pytest-mock>=3.14.0
+pytest-airflow>=0.0.5
+faker>=25.2.0
+factory-boy>=3.3.0
+freezegun>=1.5.0
+responses>=0.25.3
+moto[s3,redshift]>=5.0.9
+
+# ─── Code Quality ─────────────────────────────────────────────────────────────
+ruff>=0.4.4
+mypy>=1.10.0
+pre-commit>=3.7.1
+
+# ─── Load Testing ─────────────────────────────────────────────────────────────
+locust>=2.28.0
+
+# ─── Notebooks ────────────────────────────────────────────────────────────────
+jupyter>=1.0.0
+jupyterlab>=4.2.0
+matplotlib>=3.9.0
+seaborn>=0.13.2
+plotly>=5.22.0

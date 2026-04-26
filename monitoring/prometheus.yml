@@ -1,0 +1,42 @@
+# =============================================================================
+# Prometheus Configuration — BMR-ML-Pipeline
+# =============================================================================
+global:
+  scrape_interval:     15s
+  evaluation_interval: 15s
+  external_labels:
+    project: "bmr-ml-pipeline"
+    environment: "local"
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+
+rule_files:
+  - "alert_rules.yaml"
+
+scrape_configs:
+  # Prometheus itself
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # Model Serving API
+  - job_name: "bmr-serving-api"
+    static_configs:
+      - targets: ["serving-api:8000"]
+    metrics_path: "/metrics"
+    scrape_interval: 10s
+
+  # Airflow
+  - job_name: "airflow-scheduler"
+    static_configs:
+      - targets: ["airflow-scheduler:8974"]
+    metrics_path: "/health"
+    scrape_interval: 30s
+
+  # Node Exporter (host metrics)
+  - job_name: "node"
+    static_configs:
+      - targets: ["node-exporter:9100"]
